@@ -51,7 +51,7 @@
       q
 
   If False can be deduced by resolution, the original set of clauses is inconsistent. When making proofs by contradiction 
-  this is exactly what we want to do.The approach is illustrated by the resolution principle explained below.
+  this is exactly what we want to do. The approach is illustrated by the resolution principle explained below.
   
   
 ****** The Resolution Principle ******
@@ -93,7 +93,7 @@
 
   Your program should read a text file containing the initial set of valid clauses and a clause for each literal 
   in the negated clause that we want to test validity of. Each line in the file defines a single clause. The literals of
-  each clause are separated by a blank space and is used to represent negation.
+  each clause are separated by a blank space and '~' is used to represent negation.
 
   Your program should implement the resolution algorithm as explained in the previous section. The output is either
   “Failure” if the clause cannot be shown to be valid, or the list of clauses in the proof tree for deducing False. 
@@ -201,69 +201,198 @@ argument(and no other arguments, please!). Also hand in a copy of the files ment
 */
 
 #include "stdafx.h"
-#include <string>
-#include <vector>
-#include <iostream>
-#include <ostream>
-#include <fstream>
-#include <sstream>
-#include <iterator>
 
 using namespace std;
+
+struct Literal;
+struct Clause;
+
+vector<Clause*> originalClauses;
+int clauseNum = 0;
 
 struct Literal 
 {
 public:
 
   string name;
+  bool negated = false;
 
   Literal(string n) 
   {
-    name = n;
+    if (negated = ( n[0] == '~') ) 
+      name = n.substr(1, n.size()-1);
+    else 
+      name = n;
   }
-
 };
 
 struct Clause 
 {
 public:
-
   vector<Literal*> literals;
-  
+  string name;
+  int ID;
+  vector<Clause> parents;
+
   Clause(vector<Literal*> lits) 
   {
+    ID = clauseNum;
+    clauseNum++;
+
     literals = lits;
+    
+    SortLiterals();
+
+    literals.erase(unique(literals.begin(), literals.end()), literals.end());
+
+    CreateName();
   }
 
-  /*
-  bool ContainsNegatedLiteral(Literal* l) 
+  Clause(vector<Literal*> lits, vector<Clause> p)
   {
-    for (int x = 0; x < literalVector.size(); x++)
-      if (literalVector[x]->name == l->name && literalVector[x]->negated != l->negated)
-        return true;
+    ID = clauseNum;
+    clauseNum++;
+    literals = lits;
+    parents = p;
 
+    SortLiterals();
+    literals.erase(unique(literals.begin(), literals.end()), literals.end());
+    CreateName();
+  }
+
+  // Negates the clause and adds each literal as a separate clause
+  vector<Clause*> Negate()
+  {
+    vector<Clause*> negations;
+    vector<Literal*> newLits = literals;
+
+    for (int x = 0; x < newLits.size(); x++)
+    {
+      Literal* l = literals[x];
+      l->negated = !l->negated;
+      vector<Literal*> lits = { l };
+      negations.push_back(new Clause(lits));
+    }
+    return negations;
+  }
+
+  // + Operator overloader. Essentially applies the resolution principle to the two clauses, and adds the result to the clauseVector
+  Clause* operator+(const Clause& b) 
+  {
+    vector<Literal*> newL;
+
+    // Combine the Clause's literal lists
+    newL.reserve(literals.size() + b.literals.size());
+    newL.insert(newL.end(), literals.begin(), literals.end());
+    newL.insert(newL.end(), b.literals.begin(), b.literals.end());
+
+    // Go through the list. Remove duplicates of the literal.
+    // If there is a negated version of the same literal (I.E x31 and ~x31), remove both literals and go to the next literal
+    int index = 0;
+    while(index < newL.size())
+    {
+      Literal* l = newL[index];
+
+      for (int x = index+1; x < newL.size(); x++) 
+      {
+        // Are they the same literal?
+        if (l->name == newL[x]->name) 
+        {
+          // If it's an opposite literal, delete both, move to the next Literal
+          if (l->negated != newL[x]->negated) 
+          {
+            newL.erase(newL.begin() + x);
+            newL.erase(newL.begin() + index);
+            index--;
+            break;
+          }
+          // Otherwise it's a duplicate. Delete the duplicate and move on
+          else 
+          {
+            newL.erase(newL.begin() + x);
+            x--;
+          }
+        }
+      }
+      index++;
+    }
+    vector<Clause> parents = { *this, b };
+
+    Clause* c = new Clause(newL, parents);
+    
+    if(newL.size() == 0)
+      c->name = "False";
+
+    return c;
+  }
+
+  // << Operator overloader. Prints out the clause
+  friend ostream& operator<<(ostream& os, const Clause& c) 
+  {
+    os << c.ID << ". " << c.name << " {";
+
+    if (c.parents.size() > 0)
+    {
+      for (int x = 0; x < c.parents.size() - 1; x++)
+        os << c.parents[x].ID << ", ";
+
+      os << c.parents[c.parents.size() - 1].ID;
+    }
+
+    os << "}";
+
+    return os;
+  }
+
+  // Finds if this clause contains a given literal in its negated form
+  bool ContainsNegatedLiteral(Literal* lit)
+  {
+    for (int x = 0; x < literals.size(); x++)
+    {
+      Literal* l = literals[x];
+      if (l->name == lit->name && l->negated != lit->negated)
+        return true;
+    }
     return false;
   }
-  */
 
+  void CreateName() 
+  {
+    name = "";
+
+    for (int x = 0; x < literals.size(); x++)
+    {
+      if (literals[x]->negated)
+        name += '~';
+      name += literals[x]->name + " ";
+    }
+  }
+
+  void SortLiterals()
+  {
+    for (int x = 0; x<literals.size(); x++)
+    {
+      int minI = x;
+
+      for (int y = x; y<literals.size(); y++)
+        if (literals[minI]->name > literals[y]->name)
+          minI = y;
+
+      Literal* temp = literals[x];
+      literals[x] = literals[minI];
+      literals[minI] = temp;
+    }
+  }
 };
 
-vector<Literal*> literalVector;
-vector<Clause*> clauseVector;
-
-
-bool ContainsLiteral(string literalName) 
+bool ContainsClause(Clause* c, vector<Clause*> v) 
 {
-  for (int x = 0; x < literalVector.size(); x++)
-    if (literalVector[x]->name == literalName)
+  for (int x = 0; x < v.size(); x++) 
+  {
+    if (v[x]->name == c->name)
       return true;
-
+  }
   return false;
-}
-
-void ApplyResolution(Clause cMain, Clause cOther) 
-{
-  
 }
 
 void InitializeClauses(string fileName) 
@@ -271,35 +400,266 @@ void InitializeClauses(string fileName)
   ifstream iFile;
   iFile.open(fileName);
 
-  // Go line by line, split the string via white spaces, create new literals if needed. Make a new clause for each line.
+  // Go line by line, split the string via white spaces, create new literals if needed. 
+  // Make a new clause for each line.
   string line = "";
   while (getline(iFile, line))
   {
-    cout << "Line: " << line << endl;
+    //cout << "Line: " << line << endl;
     istringstream buf(line);
     istream_iterator<string> beg(buf), end;
-
     vector<string> tokens(beg, end); // done!
-    vector<Literal*> clauseLiterals;
+
+    vector<Literal*> lits;
 
     // Go through and add the literals as needed
     for (int x = 0; x < tokens.size(); x++)
-      clauseLiterals.push_back(new Literal(tokens[x]));
+      lits.push_back(new Literal(tokens[x]));
 
-    clauseVector.push_back(new Clause(clauseLiterals));
+    Clause* c = new Clause(lits);
 
-    //for (auto& s : tokens)
-    //  cout << s << endl;
+    originalClauses.push_back(c);
+  }
+}
+
+Clause* ApplyResolution(Clause* cMain, Clause* cOther) 
+{
+  Clause* c = *cMain + *cOther;
+  return c;
+}
+
+void SortClausesBySize() 
+{
+  for (int x = 0; x<originalClauses.size(); x++)
+  {
+    int minI = x;
+
+    for (int y = x; y<originalClauses.size(); y++)
+      if (originalClauses[minI]->literals.size() > originalClauses[y]->literals.size())
+        minI = y;
+
+    Clause* temp = originalClauses[x];
+    originalClauses[x] = originalClauses[minI];
+    originalClauses[minI] = temp;
+  }
+}
+
+vector<Clause> SortClausesByID(vector<Clause> v)
+{
+  for (int x = 0; x<v.size(); x++)
+  {
+    int minI = x;
+
+    for (int y = x; y<v.size(); y++)
+      if (v[minI].ID > v[y].ID)
+        minI = y;
+
+    Clause temp = v[x];
+    v[x] = v[minI];
+    v[minI] = temp;
+  }
+
+  return v;
+}
+
+void PrintVector(vector<Clause*> v, string fileName) 
+{
+  Clause* currentClause = v[v.size() - 1];
+  vector<Clause> clauses = 
+  {
+    *currentClause, 
+    currentClause->parents[0], 
+    currentClause->parents[1] 
+  };
+
+  bool noParents = false;
+  int index = 1;
+  while (index < clauses.size()) 
+  {
+    Clause c = clauses[index];
+
+    if (c.parents.size() > 0) 
+    {
+      clauses.push_back(c.parents[0]);
+      clauses.push_back(c.parents[1]);
+    }
+
+    index++;
+  }
+
+  clauses = SortClausesByID(clauses);
+
+  ofstream output;
+  output.open(fileName + ".out.txt");
+
+  for (int x = 0; x < clauses.size(); x++) 
+  {
+    output << clauses[x] << endl;
+    cout << clauses[x] << endl;
+  }
+
+  output << "Final Clause Size: " << v.size() << endl;
+  cout << "Final Clause Size: " << v.size() << endl;
+  
+  output.close();
+}
+
+/*
+void PartA(string fileName) 
+{
+  InitializeClauses(fileName);
+
+  int index = 0;
+  bool foundEmptyClause = false;
+
+  vector <Clause*> clauses = originalClauses;
+  Clause* clauseToProve = originalClauses[0];
+
+  while (index < originalClauses.size())
+  {
+    cout << endl;
+
+    foundEmptyClause = false;
+    clauseToProve = originalClauses[index];
+    Clause* result = NULL;
+    clauses = originalClauses;
+    clauses.erase(clauses.begin() + index);
+
+    vector<Clause*> neg = clauseToProve->Negate();
+    clauses.insert(clauses.end(), neg.begin(), neg.end());
+
+    // Go through each clause
+    // If you find a clause that can have resolution applied to it, apply it and add it to the clauses vector and continue to the next clause
+    int i = 0;
+
+    // Starting to go through the list to try and prove everything
+    while (!foundEmptyClause && i <clauses.size())
+    {
+      Clause* currentClause = clauses[i];
+
+      int a = i + 1;
+
+      while (a < clauses.size())
+      {
+        Clause* compare = clauses[a];
+
+        // Go through each literal
+        for (int y = 0; y < currentClause->literals.size(); y++)
+        {
+          Literal* l = currentClause->literals[y];
+
+          // If the compared clause contains a negated literal, apply resolution, move on to the next compare clause
+          if (compare->ContainsNegatedLiteral(l))
+          {
+            result = ApplyResolution(currentClause, compare);
+
+            if (!ContainsClause(result, clauses))
+              clauses.push_back(result);
+
+            break;
+          }
+        }
+
+        if (result != NULL && result->literals.size() == 0)
+        {
+          result->name = "False";
+          foundEmptyClause = true;
+          break;
+        }
+        a++;
+      }
+      i++;
+    }
+
+    if (foundEmptyClause)
+    {
+      cout << endl;
+      PrintVector(clauses);
+      index++;
+    }
+    else
+      break;
+  }
+
+  cout << "" << endl;
+
+  if (!foundEmptyClause)
+  {
+    PrintVector(clauses);
+    cout << "A contradiction has been found with " << *clauseToProve << endl;
+  }
+  else
+  {
+    PrintVector(originalClauses);
+    cout << "The given clauses are valid" << endl;
+  }
+}
+*/
+
+void PartB(string file)
+{
+  string fileName = file;
+  InitializeClauses(fileName);
+
+  vector<Clause*> clauses = originalClauses;
+
+  Clause* clauseToProve = clauses[clauses.size()-1];
+
+  bool foundContradiction = false;
+  int index = 0;
+  while (index < clauses.size())
+  {
+    Clause* current = clauses[index];
+    int i = index + 1;
+
+    while (i < clauses.size())
+    {
+      Clause* compare = clauses[i];
+
+      for (int x = 0; x < current->literals.size(); x++)
+      {
+        Literal* l = current->literals[x];
+        if (compare->ContainsNegatedLiteral(l))
+        {
+          Clause* result = ApplyResolution(current, compare);
+          clauses.push_back(result);
+          break;
+        }
+      }
+
+      if (foundContradiction = (clauses.back()->literals.size() == 0))
+        break;
+
+      i++;
+    }
+
+    if (foundContradiction)
+      break;
+
+    index++;
+  }
+
+  if (foundContradiction)
+  {
+    cout << "Found contradiction, " << clauseToProve->name << " is valid" << endl;
+    string outFile = fileName.substr(0, 5);
+    PrintVector(clauses, outFile);
+  }
+
+  else 
+  {
+    cout << "Did not find contradiction, " << clauseToProve->name << " is not valid" << endl;
+    for (int x = 0; x < clauses.size(); x++)
+      cout << *clauses[x] << endl;
   }
 }
 
 int main(int argc, char *argv[])
 {
-  string fileName;
-  fileName = argv[1];
-  InitializeClauses(fileName);
- 
-  //std::cin.ignore();
+
+
+  PartB(argv[1]);
+  cout << endl;
 
   return 0;
 }
